@@ -1,4 +1,4 @@
-import { FetchResultFees, FetchResultVolume, SimpleAdapter } from "../../adapters/types"
+import { FetchResultVolume, SimpleAdapter } from "../../adapters/types"
 import { CHAIN } from "../../helpers/chains"
 import fetchURL from "../../utils/fetchURL"
 
@@ -19,21 +19,21 @@ interface CaviarNineLSUPool {
     }
   };
 }
-const fetchFees = async (timestamp: number): Promise<FetchResultVolume> => {
+const fetchFees = async (): Promise<FetchResultVolume> => {
   const response: CaviarNineLSUPool = (await fetchURL("https://api-core.caviarnine.com/v1.0/stats/product/lsupool")).summary;
   const dailyVolume = Number(response.volume.interval_1d.usd);
   return {
-    dailyVolume: `${dailyVolume}`,
-    timestamp
+    dailyVolume: dailyVolume,
   }
 }
 
 const adapters: SimpleAdapter = {
+  deadFrom: '2026-09-04', // stats API returns an empty summary; product TVL is 0 and last nonzero volume was on 2026-09-03
   adapter: {
     [CHAIN.RADIXDLT]: {
       fetch: fetchFees,
-      start: 1699142400,
-      // runAtCurrTime: true
+      start: '2023-11-05',
+      runAtCurrTime: true,
     }
   }
 }

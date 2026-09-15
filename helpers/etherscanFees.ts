@@ -1,23 +1,29 @@
 import { Adapter, FetchOptions, ProtocolType } from "../adapters/types";
-import { httpPost } from '../utils/fetchURL';
+import { httpGet } from '../utils/fetchURL';
 
 
 export async function getEtherscanFees({ startOfDay, }: FetchOptions, url: string) {
-    const dailyFees = await httpPost(url, {
-        responseType: 'blob', headers: {
+    const dailyFees = await httpGet(url, {
+        headers: {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36",
-            "Content-Type": "text/csv; charset=utf-8",
             "Accept": "text/csv; charset=utf-8",
-            "origin": url,
-        }
+        },
+        responseType: 'text',
+        // axios parses text by default; keep raw CSV string
+        transformResponse: (data: any) => data,
     });
-    const feesToday = dailyFees.split("\n").find((d: any) => d?.split(",")?.[1]?.slice(1, -1) == startOfDay)
-    return Number(feesToday?.split(",")[2].slice(1, -2))
+    const feesToday = dailyFees.split("\r\n").find((d: any) => d?.split(",")?.[1]?.slice(1, -1) == startOfDay)
+
+    if (!feesToday) {
+        throw Error('No fee found for today from Etherscan')
+    }
+
+    return Number(feesToday?.split(",")[2].slice(1, -1))
 }
 
 export function etherscanFeeAdapter(chain: string, url: string, cgToken?: string) {
     const adapter: Adapter = {
-        version: 2,
+        version: 1,
         adapter: {
             [chain]: {
                 fetch: async (options: FetchOptions) => {
@@ -28,16 +34,11 @@ export function etherscanFeeAdapter(chain: string, url: string, cgToken?: string
                     else
                         dailyFees.addGasToken(amount)
 
-                    if (options.chain === 'fantom') {
-                        const dailyRevenue = dailyFees.clone(0.3)
-                        return { timestamp: options.startOfDay, dailyFees, dailyRevenue }
-                    }
-
                     return {
                         dailyFees,
                     };
                 },
-                start: 1690761600
+                start: '2023-07-31'
             },
         },
         protocolType: ProtocolType.CHAIN

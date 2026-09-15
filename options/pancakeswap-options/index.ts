@@ -3,12 +3,12 @@ import { CHAIN } from "../../helpers/chains";
 import { FetchOptions, SimpleAdapter } from "../../adapters/types";
 
 const url: { [s: string]: string } = {
-  [CHAIN.ARBITRUM]: "https://api.0xgraph.xyz/api/public/e2146f32-5728-4755-b1d1-84d17708c119/subgraphs/dopex-v2-clamm-public/v0.0.2/gn"
+  [CHAIN.ARBITRUM]: "https://api.0xgraph.xyz/api/public/e2146f32-5728-4755-b1d1-84d17708c119/subgraphs/dopex-v2-clamm-public/-/gn"
 }
 
 const query = gql`
   query getVolume($startTimestamp: BigInt!, $endTimestamp: BigInt!) {
-    optionMarketDailyStats(where: { startTimestamp_gte: $startTimestamp, startTimestamp_lte: $endTimestamp }) {
+    optionMarketDailyStats(where: { startTimestamp_gte: $startTimestamp, startTimestamp_lt: $endTimestamp }) {
       startTimestamp
       volume
       premium
@@ -41,7 +41,7 @@ const adapter: SimpleAdapter = {
   adapter: {
     [CHAIN.ARBITRUM]: {
       fetch: fetchOptions,
-      start: 1699660800,
+      start: '2023-11-11',
     },
   }
 }

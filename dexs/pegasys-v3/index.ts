@@ -1,29 +1,15 @@
 import { SimpleAdapter } from "../../adapters/types";
-import { DEFAULT_TOTAL_VOLUME_FIELD, getChainVolume } from "../../helpers/getUniSubgraphVolume";
 import { CHAIN } from "../../helpers/chains";
+import { getUniV3LogAdapter } from "../../helpers/uniswap";
 
-const endpoints = {
-  [CHAIN.ROLLUX]: "https://rollux.graph.pegasys.fi/subgraphs/name/pollum-io/pegasys-v3",
-};
-
-const graphs = getChainVolume({
-  graphUrls: endpoints,
-  totalVolume: {
-    factory: "factories",
-    field: DEFAULT_TOTAL_VOLUME_FIELD,
-  },
-  dailyVolume: {
-    factory: "pegasysDayData",
-    field: "volumeUSD",
-  },
-});
-// rollux
 const adapter: SimpleAdapter = {
   version: 2,
+  skipBreakdownValidation: true,
+  pullHourly: true,
   adapter: {
     [CHAIN.ROLLUX]: {
-      fetch: graphs(CHAIN.ROLLUX),
-      start: 1688083200
+      fetch: getUniV3LogAdapter({ factory: '0xeAa20BEA58979386A7d37BAeb4C1522892c74640' }),
+      start: '2023-06-30',
     },
   },
 };

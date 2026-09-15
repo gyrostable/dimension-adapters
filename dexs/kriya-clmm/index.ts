@@ -1,46 +1,39 @@
 import fetchURL from "../../utils/fetchURL"
-import { Chain } from "@defillama/sdk/build/general";
-import { FetchResultV2, SimpleAdapter } from "../../adapters/types";
+import { FetchOptions, FetchResult, SimpleAdapter } from "../../adapters/types";
 import { CHAIN } from "../../helpers/chains";
-import { getUniqStartOfTodayTimestamp } from "../../helpers/getUniSubgraphVolume";
 
 type IUrl = {
     [s: string]: string;
 }
 
+// https://api.kriya.finance/defillama/clmm
+
 const url: IUrl = {
-    [CHAIN.SUI]: `https://tkmw8dmcp8.execute-api.ap-southeast-1.amazonaws.com/prod/volume/clmm/`
+    [CHAIN.SUI]: 'https://api-service-81678480858.asia-northeast1.run.app/pools/v3'
 }
 
 interface IVolume {
-    totalVolume: number,
-    dailyVolume: number,
-    weeklyVolume: number,
-    monthlyVolume: number,
+    volume24h: string
 }
 
-const fetch = (chain: Chain) => {
-    return async ({ endTimestamp }): Promise<FetchResultV2> => {
-        const dayTimestamp = getUniqStartOfTodayTimestamp(new Date(endTimestamp * 1000));
-        // fetch for the passed timestamp.
-        const volumeUrl = url[chain] + String(endTimestamp);
-        const volume: IVolume = (await fetchURL(volumeUrl));
-        return {
-            totalVolume: `${volume?.totalVolume || undefined}`,
-            dailyVolume: `${volume?.dailyVolume || undefined}`,
-            timestamp: dayTimestamp,
-        };
+const fetch = async (options: FetchOptions): Promise<FetchResult> => {
+    const data: IVolume[] = (await fetchURL(url[options.chain]))?.data;
+    let totalVolume = 0;
+    data.map((item) => {
+        totalVolume += Number(item.volume24h);
+    })
+
+    return {
+        dailyVolume: `${totalVolume || 0}`
     };
-}
+};
 
 const adapter: SimpleAdapter = {
-    version: 2,
-    adapter: {
-        [CHAIN.SUI]: {
-            fetch: fetch(CHAIN.SUI),
-            start: 1683604174,
-        }
-    },
+    version: 1,
+    fetch,
+    chains: [CHAIN.SUI],
+    start: '2023-05-09',
+    runAtCurrTime: true,
 };
 
 export default adapter;

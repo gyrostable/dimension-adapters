@@ -4,42 +4,37 @@ Helio Fee Account: FudPMePeNqmnjMX19zEKDfGXpbp6HAdW6ZGprB5gYRTZ
 Dao Fee Account: JBGUGPmKUEHCpxGGoMowQxoV4c7HyqxEnyrznVPxftqk
 */
 
-import { FetchOptions, SimpleAdapter } from "../adapters/types";
+import { Dependencies, FetchOptions, SimpleAdapter } from "../adapters/types";
 import { CHAIN } from "../helpers/chains";
-import { queryDune } from "../helpers/dune";
+import { addTokensReceived, getETHReceived, getSolanaReceived } from "../helpers/token";
 
-const solanaDecimals = {
-    EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6,
-    Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6
-} as any
+const SOL_WALLET = 'FudPMePeNqmnjMX19zEKDfGXpbp6HAdW6ZGprB5gYRTZ';
+const EVM_WALLET = '0xa50E658C75dd31C8a1FD29d48F3de26e6d79df5D';
 
-const fetch: any = async (options: FetchOptions) => {
-  const receivedTokens = (await queryDune("3996080", {
-    start: options.startTimestamp,
-    end: options.endTimestamp,
-    receiver: 'FudPMePeNqmnjMX19zEKDfGXpbp6HAdW6ZGprB5gYRTZ'
-  })) as any[]
+const fetch = async (options: FetchOptions) => {
   const dailyFees = options.createBalances();
-  receivedTokens.forEach(row=>{
-    if(!solanaDecimals[row.token_mint_address]){
-        return; // skip unknown tokens
-    }
-    dailyFees.add(row.token_mint_address, (row.received * 10**solanaDecimals[row.token_mint_address]).toFixed(0))
-  })
-  dailyFees.resizeBy(1.11)
+  if (options.chain === CHAIN.SOLANA) {
+    await getSolanaReceived({ options, target: SOL_WALLET, balances: dailyFees });
+  }
+  else {
+    await getETHReceived({ options, target: EVM_WALLET, balances: dailyFees });
+    await addTokensReceived({ options, target: EVM_WALLET, balances: dailyFees });
+  }
 
-  return { dailyFees, dailyRevenue: dailyFees, dailyHoldersRevenue: dailyFees.clone(0.1) }
+  return { dailyFees, dailyRevenue: dailyFees, dailyProtocolRevenue: dailyFees }
 }
 
 const adapter: SimpleAdapter = {
   version: 2,
-  adapter: {
-    [CHAIN.SOLANA]: {
-      fetch: fetch,
-      start: 0,
-    },
-  },
-  isExpensiveAdapter: true
+  pullHourly: true,
+  fetch,
+  chains: [CHAIN.SOLANA, CHAIN.ETHEREUM, CHAIN.BASE, CHAIN.POLYGON],
+  dependencies: [Dependencies.ALLIUM],
+  methodology: {
+    Fees: 'Total fees paid by users.',
+    Revenue: 'Total fees paid by users.',
+    ProtocolRevenue: 'All the fees paid are collected by Helio.',
+  }
 };
 
 export default adapter;

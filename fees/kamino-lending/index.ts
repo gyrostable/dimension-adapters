@@ -1,56 +1,81 @@
-import { Adapter, FetchV2 } from "../../adapters/types";
+import { Adapter, FetchOptions, FetchV2 } from "../../adapters/types";
 import fetchURL from "../../utils/fetchURL";
 import { CHAIN } from "../../helpers/chains";
-import { getTimestampAtStartOfPreviousDayUTC } from "../../utils/date";
+import { METRIC } from "../../helpers/metrics";
 
 // Define the URL of the endpoint
 const AllezLabsKaminoFeeEndpoint = 'https://allez-xyz--kamino-fees-api-get-fees-lifetime-kamino.modal.run';
-const KaminoStartTimestamp = 1697068700;
+const ORIGINATION_FEES = 'Origination Fees';
 
 // Function to make the GET request
-const fetch: FetchV2 = async ({ endTimestamp }) =>  {
-    const dayTimestamp = getTimestampAtStartOfPreviousDayUTC(endTimestamp);
-    const historicalFeesRes = (await fetchURL(AllezLabsKaminoFeeEndpoint));
+const fetch: FetchV2 = async (options: FetchOptions) => {
+    const historicalFeesRes = await fetchURL(AllezLabsKaminoFeeEndpoint)
+    const record = historicalFeesRes['data'].find((row: any) => row.day === options.dateString)
 
-    const totalFee = historicalFeesRes['data']
-    .filter(row => row.timestamp <= dayTimestamp)
-    .reduce((acc, {KlendFeesUsd}) => acc + KlendFeesUsd, 0);
+    if (!record)
+        throw new Error(`No record found for date: ${options.dateString}`);
 
-    const totalRevenue = historicalFeesRes['data']
-    .filter(row => row.timestamp <= dayTimestamp)
-    .reduce((acc, {KlendRevenueUsd}) => acc + KlendRevenueUsd, 0);
-    
+    const { KlendInterestFeesUSD, KlendInterestRevenueUSD, KlendLiquidationFeesUSD, KlendLiquidationRevenueUSD, KlendOriginationFeesUSD } = record;
 
-    const dailyFee = historicalFeesRes['data']
-    .find(row => Math.abs(row.timestamp - dayTimestamp) < 3600*24 - 1)?.KlendFeesUsd;
-    
-    const dailyRevenue = historicalFeesRes['data']
-    .find(row => Math.abs(row.timestamp - dayTimestamp) < 3600*24 - 1)?.KlendRevenueUsd;
-    
+    const dailyFees = options.createBalances();
+    const dailyRevenue = options.createBalances();
+    const dailySupplySideRevenue = options.createBalances();
+
+    dailyFees.addUSDValue(KlendInterestFeesUSD, METRIC.BORROW_INTEREST)
+    dailyRevenue.addUSDValue(KlendInterestRevenueUSD, METRIC.BORROW_INTEREST)
+    dailySupplySideRevenue.addUSDValue(KlendInterestFeesUSD - KlendInterestRevenueUSD, METRIC.BORROW_INTEREST)
+
+    dailyFees.addUSDValue(KlendLiquidationFeesUSD, METRIC.LIQUIDATION_FEES)
+    dailyRevenue.addUSDValue(KlendLiquidationRevenueUSD, METRIC.LIQUIDATION_FEES)
+    dailySupplySideRevenue.addUSDValue(KlendLiquidationFeesUSD - KlendLiquidationRevenueUSD, METRIC.LIQUIDATION_FEES)
+
+    dailyFees.addUSDValue(KlendOriginationFeesUSD, ORIGINATION_FEES)
+    dailyRevenue.addUSDValue(KlendOriginationFeesUSD, ORIGINATION_FEES)
+
     return {
-        timestamp: dayTimestamp,
-        totalFees: `${totalFee}`,
-        dailyFees: `${dailyFee}`,
-        totalRevenue: `${totalRevenue}`,
-        dailyRevenue: `${dailyRevenue}`
+        dailyFees,
+        dailyRevenue,
+        dailyProtocolRevenue: dailyRevenue,
+        dailySupplySideRevenue,
     };
 };
+
 const methodology = {
-    Fees: "Fees are aggregated by Allez Labs using the Kamino API"
+    Fees: "Includes interest fees, liquidation fees and origination fees. All fees are aggregated by Allez Labs using the Kamino API",
+    Revenue: "Includes interest spreads, part of liquidation fees and all the origination fees.",
+    ProtocolRevenue: "All the revenue goes to the protocol",
+    SupplySideRevenue: "Includes interests going to lenders and liquidation penalties going to liquidators"
+}
+
+const breakdownMethodology = {
+    Fees: {
+        [METRIC.BORROW_INTEREST]: "Interest fees paid by borrowers",
+        [METRIC.LIQUIDATION_FEES]: "Liquidation fees paid by borrowers",
+        [ORIGINATION_FEES]: "Origination fees paid by borrowers",
+    },
+    Revenue: {
+        [METRIC.BORROW_INTEREST]: "Interest spreads going to the protocol",
+        [METRIC.LIQUIDATION_FEES]: "Part of liquidation fees going to the protocol",
+        [ORIGINATION_FEES]: "All the origination fees going to the protocol",
+    },
+    ProtocolRevenue: {
+        [METRIC.BORROW_INTEREST]: "Interest spreads going to the protocol",
+        [METRIC.LIQUIDATION_FEES]: "Part of liquidation fees going to the protocol",
+        [ORIGINATION_FEES]: "All the origination fees going to the protocol",
+    },
+    SupplySideRevenue: {
+        [METRIC.BORROW_INTEREST]: "Interests going to lenders",
+        [METRIC.LIQUIDATION_FEES]: "Liquidation penalties going to liquidators",
+    },
 }
 
 const adapter: Adapter = {
-    version: 2,
-    adapter: {
-        [CHAIN.SOLANA]: {
-            fetch,
-            runAtCurrTime: true,
-            start: 1697068700,
-            meta: {
-                methodology
-            }
-        }
-    }
+    version: 1,
+    fetch,
+    chains: [CHAIN.SOLANA],
+    start: '2023-10-12',
+    methodology,
+    breakdownMethodology,
 }
 export default adapter;
 

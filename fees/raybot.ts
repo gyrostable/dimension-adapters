@@ -1,29 +1,23 @@
-import { FetchOptions, SimpleAdapter } from "../adapters/types";
+import { Dependencies, FetchOptions, SimpleAdapter } from "../adapters/types";
 import { CHAIN } from "../helpers/chains";
-import { queryDune } from "../helpers/dune";
+import { getSolanaReceived } from "../helpers/token";
 
-const fetch: any = async (options: FetchOptions) => {
-  const dailyFees = options.createBalances();
-  const value = (await queryDune("3521814", {
-    start: options.startTimestamp,
-    end: options.endTimestamp,
-    receiver: '4mih95RmBqfHYvEfqq6uGGLp1Fr3gVS3VNSEa3JVRfQK'
-  }));
-  dailyFees.add('So11111111111111111111111111111111111111112', value[0].fee_token_amount);
-
-  return { dailyFees, dailyRevenue: dailyFees }
-
+const fetch = async (options: FetchOptions) => {
+  const dailyFees = await getSolanaReceived({ options, target: '4mih95RmBqfHYvEfqq6uGGLp1Fr3gVS3VNSEa3JVRfQK' })
+  return { dailyFees, dailyRevenue: dailyFees, dailyProtocolRevenue: dailyFees }
 }
 
 const adapter: SimpleAdapter = {
   version: 2,
-  adapter: {
-    [CHAIN.SOLANA]: {
-      fetch: fetch,
-      start: 0,
-    },
-  },
-  isExpensiveAdapter: true
+  pullHourly: true,
+  fetch,
+  chains: [CHAIN.SOLANA],
+  dependencies: [Dependencies.ALLIUM],
+  methodology: {
+    Fees: "All trading fees paid by users while using Raybot bot.",
+    Revenue: "Trading fees are collected by Raybot protocol.",
+    ProtocolRevenue: "Trading fees are collected by Raybot protocol.",
+  }
 };
 
 export default adapter;

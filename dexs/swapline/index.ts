@@ -10,7 +10,7 @@ interface IVolumeall {
   date: number;
 }
 
-const fetch = async (_timestamp: number , _: ChainBlocks, { startOfDay,api, createBalances }: FetchOptions) => {
+const fetch = async ({ startOfDay,api, createBalances }: FetchOptions) => {
   const dayTimestamp = startOfDay
   const dailyVolume = createBalances();
   const historicalVolume: IVolumeall[] = (await fetchURL(historicalVolumeEndpoint + api.getChainId()))[0]?.chainEntries;
@@ -24,7 +24,7 @@ const fetch = async (_timestamp: number , _: ChainBlocks, { startOfDay,api, crea
   }
 }
 
-const fetchObject = { fetch, start:1680048000 }
+const fetchObject = { fetch, start: '2023-03-29' }
 
 const adapter: SimpleAdapter = {
   adapter: {
@@ -33,6 +33,9 @@ const adapter: SimpleAdapter = {
     [CHAIN.ARBITRUM]: fetchObject,
     [CHAIN.SHIMMER_EVM]: fetchObject,
   },
+  // Both API hosts and the swapline.com apex resolve with no A record. All four chains read the
+  // same two hosts, so none of them can report. Last published point 2024-06-03 ($18,388).
+  deadFrom: '2024-06-04',
 };
 
 export default adapter;

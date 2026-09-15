@@ -1,29 +1,23 @@
-import { FetchOptions, SimpleAdapter } from "../adapters/types";
+import { Dependencies, FetchOptions, SimpleAdapter } from "../adapters/types";
 import { CHAIN } from "../helpers/chains";
-import { queryDune } from "../helpers/dune";
+import { getSolanaReceived } from "../helpers/token";
 
-const fetch: any = async (options: FetchOptions) => {
-  const dailyFees = options.createBalances();
-  const value = (await queryDune("3521814", {
-    start: options.startTimestamp,
-    end: options.endTimestamp,
-    receiver: '3udvfL24waJcLhskRAsStNMoNUvtyXdxrWQz4hgi953N'
-  }));
-  dailyFees.add('So11111111111111111111111111111111111111112', value[0].fee_token_amount);
-
-  return { dailyFees, dailyRevenue: dailyFees }
-
+const fetch = async (options: FetchOptions) => {
+  const dailyFees = await getSolanaReceived({ options, target: '3udvfL24waJcLhskRAsStNMoNUvtyXdxrWQz4hgi953N' })
+  return { dailyFees, dailyRevenue: dailyFees, dailyProtocolRevenue: dailyFees }
 }
 
 const adapter: SimpleAdapter = {
   version: 2,
-  adapter: {
-    [CHAIN.SOLANA]: {
-      fetch: fetch,
-      start: 0,
-    },
-  },
-  isExpensiveAdapter: true
+  pullHourly: true,
+  fetch,
+  chains: [CHAIN.SOLANA],
+  dependencies: [Dependencies.ALLIUM],
+  methodology: {
+    Fees: 'All fees paid by users for buy/sell and launch tokens.',
+    Revenue: 'All fees paid by users.',
+    ProtocolRevenue: 'All fees paid by users.',
+  }
 };
 
 export default adapter;

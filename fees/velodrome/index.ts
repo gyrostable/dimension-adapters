@@ -1,36 +1,41 @@
-import { Adapter, FetchOptions, FetchResultFees } from '../../adapters/types';
-import { CHAIN, OPTIMISM } from '../../helpers/chains';
-import { fetchV1 } from './velodrome';
-import { fetchFees } from "./v2"
+import { CHAIN } from "../../helpers/chains";
+import { getAdapterFromHelpers } from "../../factory/registry";
 
+const { adapter } = getAdapterFromHelpers('dexs', "velodrome") as any
 
-const getFees = async (options: FetchOptions) => {
-  const  [feeV1] = await Promise.all([fetchV1()(options)]);
-  const dailyFees = Number(feeV1.dailyFees);
-  const dailyRevenue = Number(feeV1.dailyRevenue);
-  const dailyHoldersRevenue = Number(feeV1.dailyHoldersRevenue);
+let _fetch = adapter.adapter[CHAIN.OPTIMISM].fetch;
+const fetch = async (options: any) => {
+  let res = await (_fetch as any)(options)
   return {
-    dailyFees: `${dailyFees}`,
-    dailyRevenue: `${dailyRevenue}`,
-    dailyHoldersRevenue: `${dailyHoldersRevenue}`,
+    dailyFees: res.dailyFees.clone(1, 'Token Swap Fees'),
+    dailyRevenue: res.dailyFees.clone(1, 'Swap Fees To Voters'),
+    dailyHoldersRevenue: res.dailyFees.clone(1, 'Swap Fees To Voters'),
   }
 }
 
-const adapter: Adapter = {
+export default {
+  pullHourly: true,
   version: 2,
   adapter: {
-    [OPTIMISM]: {
-      fetch: getFees,
-      start: 1677110400, // TODO: Add accurate timestamp
-    },
-    [CHAIN.MODE]: {
-      fetch: fetchFees,
-      start: 1715763701
-    },
-    [CHAIN.BOB]: {
-      fetch: fetchFees,
-      start: 1715763701
+    [CHAIN.OPTIMISM]: {
+      start: adapter.adapter[CHAIN.OPTIMISM].start,
+      fetch,
     }
   },
-};
-export default adapter;
+  methodology: {
+    Fees: 'Token swap fees paid by users.',
+    Revenue: 'Swap fees distributed to VELO token holders.',
+    HoldersRevenue: 'Swap fees dfistributed to VELO token holders.',
+  },
+  breakdownMethodology: {
+    Fees: {
+      'Token Swap Fees': 'Token swap fees paid by users.',
+    },
+    Revenue: {
+      'Swap Fees To Voters': 'Swap fees dfistributed to VELO token holders.',
+    },
+    HoldersRevenue: {
+      'Swap Fees To Voters': 'Swap fees dfistributed to VELO token holders.',
+    },
+  }
+}

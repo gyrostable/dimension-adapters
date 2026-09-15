@@ -1,5 +1,5 @@
 import * as sdk from "@defillama/sdk";
-import { SimpleAdapter } from "../../adapters/types";
+import { SimpleAdapter, FetchOptions } from "../../adapters/types";
 import { CHAIN } from "../../helpers/chains";
 import { BigNumberish, ethers } from "ethers";
 
@@ -33,41 +33,15 @@ const formatAmount = (
   return amountStr;
 };
 const info: { [key: string]: any } = {
-  bsc: {
+  [CHAIN.BSC]: {
     subgraph:
       sdk.graph.modifyEndpoint('DdLtKxzUi6ExMok8dNWh9B2HN5WeTWcQsfSSZMKH1trQ'),
   },
 };
 
-function getUniqStartOfTodayTimestamp(now: Date) {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
-  const day = now.getUTCDate();
-  const startOfDay = new Date(Date.UTC(year, month, day));
-  return startOfDay.getTime() / 1000;
-}
 
-const fetchVolume = () => {
-  return async (timestamp: number) => {
-    const totdayTimestamp = getUniqStartOfTodayTimestamp(
-      new Date(timestamp * 1000)
-    );
-
-    const graphQLTotal = `
-      {
-        volumeStats(
-          orderBy: "id"
-          orderDirection: desc
-          first: 1
-          where: { period: total }
-        ) {
-          margin
-          liquidation
-        }
-      }
-    `;
-
-    const graphQlDaily = `
+const fetch = async (options: FetchOptions) => {
+  const graphQlDaily = `
       {
         volumeStats(
           orderBy: "id"
@@ -82,42 +56,30 @@ const fetchVolume = () => {
       }
     `;
 
-    // Fetch total volume data
-    const dataTotal = await request(info.bsc.subgraph, graphQLTotal);
+  // Fetch daily volume data
+  const dataDaily = await request(info.bsc.subgraph, graphQlDaily);
 
-    // Fetch daily volume data
-    const dataDaily = await request(info.bsc.subgraph, graphQlDaily);
+  // Process the fetched data and compute the response
 
-    // Process the fetched data and compute the response
+  const dailyVolume = formatAmount(
+    dataDaily.volumeStats[0]?.margin || 0,
+    30,
+    0,
+    true
+  );
 
-    const totalVolume = formatAmount(
-      dataTotal.volumeStats[0]?.margin || 0,
-      30,
-      0,
-      true
-    );
-    const dailyVolume = formatAmount(
-      dataDaily.volumeStats[0]?.margin || 0,
-      30,
-      0,
-      true
-    );
-
-    return {
-      totalVolume: totalVolume,
-      dailyVolume: dailyVolume,
-      timestamp: totdayTimestamp,
-    };
+  return {
+    dailyVolume: dailyVolume,
   };
 };
 
 const adapter: SimpleAdapter = {
-  adapter: {
-    [CHAIN.BSC]: {
-      fetch: fetchVolume(),
-      start: 1689768000,
-    },
-  },
+  fetch,
+  chains: [CHAIN.BSC],
+  start: '2023-07-19',
+  // the only subgraph this reads is gone from the network, palmswap.org publishes no address,
+  // and tvl has been zero since 2024-10-01
+  deadFrom: '2024-10-02',
 };
 
 export default adapter;

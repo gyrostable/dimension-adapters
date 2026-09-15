@@ -1,136 +1,112 @@
-import * as sdk from "@defillama/sdk";
-import request from "graphql-request";
-import { ChainBlocks, FetchOptions, SimpleAdapter } from "../../adapters/types";
+import { Dependencies, FetchOptions, SimpleAdapter } from "../../adapters/types";
 import { CHAIN } from "../../helpers/chains";
-import { getPrices } from "../../utils/prices";
-import { wrapGraphError } from "../../helpers/getUniSubgraph";
-import { Chain } from "@defillama/sdk/build/general";
+import { queryDuneSql } from "../../helpers/dune";
 
-type IEndpoint = {
-  [chain: string]: string;
-}
+const chainConfig: Record<string, { duneName: string; start: string }> = {
+  [CHAIN.ARBITRUM]: { duneName: "arbitrum", start: "2023-10-03" },
+  [CHAIN.OPTIMISM]: { duneName: "optimism", start: "2023-10-02" },
+  [CHAIN.ETHEREUM]: { duneName: "mainnet", start: "2023-10-03" },
+  [CHAIN.POLYGON]: { duneName: "polygon", start: "2023-10-13" },
+  [CHAIN.BASE]: { duneName: "base", start: "2023-10-09" },
+  [CHAIN.XDAI]: { duneName: "gnosis", start: "2023-10-06" },
+  [CHAIN.AVAX]: { duneName: "avalanche", start: "2024-08-11" },
+  [CHAIN.LINEA]: { duneName: "linea", start: "2024-08-11" },
+  [CHAIN.BSC]: { duneName: "bsc", start: "2024-06-07" },
+  [CHAIN.SCROLL]: { duneName: "scroll", start: "2024-08-11" },
+};
 
-const endpoint: IEndpoint = {
-  [CHAIN.ARBITRUM]: sdk.graph.modifyEndpoint('BmHqxUxxLuMoDYgbbXU6YR8VHUTGPBf9ghD7XH6RYyTQ'),
-  [CHAIN.OPTIMISM]: sdk.graph.modifyEndpoint('PT2TcgYqhQmx713U3KVkdbdh7dJevgoDvmMwhDR29d5'),
-  [CHAIN.ETHEREUM]: sdk.graph.modifyEndpoint('FSn2gMoBKcDXEHPvshaXLPC1EJN7YsfCP78swEkXcntY'),
-  [CHAIN.POLYGON]: sdk.graph.modifyEndpoint('5t3rhrAYt79iyjm929hgwyiaPLk9uGxQRMiKEasGgeSP'),
-  [CHAIN.BASE]: "https://graph.contango.xyz:18000/subgraphs/name/contango-xyz/v2-base",
-  [CHAIN.XDAI]: sdk.graph.modifyEndpoint('9h1rHUKJK9CGqztdaBptbj4Q9e2zL9jABuu9LpRQ1XkC'),
-}
+const duneChains = Object.values(chainConfig).map(({ duneName }) => duneName);
+const duneChainsSql = duneChains.map((chain) => `'${chain}'`).join(", ");
 
-interface IAssetTotals {
-  id: string;
-  symbol: string;
-  totalVolume: string;
-  openInterest: string;
-  totalFees: string;
-}
-interface IResponse {
-  today: IAssetTotals[];
-  yesterday: IAssetTotals[];
-}
-interface IAsset {
-  id: string;
-  volume: number;
-  openInterest: number;
-  fees: number;
-}
-const fetchVolume = (chain: Chain) => {
-  return async (timestamp: number, _: ChainBlocks, { getFromBlock, getToBlock, createBalances, api, }: FetchOptions) => {
-    const query = `
-    {
-      today:assetTotals(where: {totalVolume_not: "0"}, block: {number: ${await getToBlock()}}) {
-        id
-        symbol
-        totalVolume
-        openInterest
-        totalFees
-      },
-      yesterday:assetTotals(where: {totalVolume_not: "0"}, block: {number: ${await getFromBlock()}}) {
-        id
-        symbol
-        totalVolume
-        openInterest
-        totalFees
-      }
-    }
-    `;
-    let response: IResponse
-    try {
-      response = await request(endpoint[chain], query)
-    } catch (error) {
-      console.error('Error fetching contango data', wrapGraphError(error as Error).message);
-      return { timestamp };
-    }
+const buildQuery = (fromTimestamp: number, toTimestamp: number) => `
+  WITH volume AS (
+    SELECT chain, SUM(ABS(QUANTITY_USD)) AS VOL_USD 
+    FROM DUNE.CONTANGO_XYZ.RESULT_V2_ALL_TRADES
+    WHERE TIMESTAMP >= from_unixtime(${fromTimestamp}) AND TIMESTAMP <= from_unixtime(${toTimestamp})
+      AND chain IN (${duneChainsSql})
+    GROUP BY chain
+  ), 
+  oi as (
+    with LONG_OI_DELTA as (
+      SELECT T.chain, DATE_TRUNC('day', T.TIMESTAMP) AS TIMESTAMP, T.BASE AS ASSET, SUM(T.QUANTITY) AS DELTA
+      FROM DUNE.CONTANGO_XYZ.V2_TRANSACTIONS AS T
+      WHERE T.chain IN (${duneChainsSql}) AND T.DIRECTION = 'Long'
+      GROUP BY 1, 2, 3
+    ),
+    SHORT_OI_DELTA as (
+      SELECT T.chain, DATE_TRUNC('day', T.TIMESTAMP) AS TIMESTAMP, T.BASE AS ASSET, SUM(T.QUANTITY) * -1 AS DELTA
+      FROM DUNE.CONTANGO_XYZ.V2_TRANSACTIONS AS T
+      WHERE T.chain IN (${duneChainsSql}) AND T.DIRECTION = 'Short'
+      GROUP BY 1, 2, 3
+    ), 
+    OI_DELTA as (
+      SELECT COALESCE(L.chain, S.chain) AS chain, COALESCE(L.TIMESTAMP, S.TIMESTAMP) AS TIMESTAMP, COALESCE(L.ASSET, S.ASSET) AS ASSET, COALESCE(L.DELTA, 0) + COALESCE(S.DELTA, 0) AS DELTA
+      FROM LONG_OI_DELTA L
+      LEFT JOIN SHORT_OI_DELTA S ON (S.TIMESTAMP = L.TIMESTAMP AND S.ASSET = L.ASSET AND S.chain = L.chain)
+    ),
+    ASSETS as (
+      SELECT distinct chain, ASSET
+      FROM OI_DELTA
+    ),
+    OI_DIRTY as (
+      SELECT TS.TIMESTAMP AS TIMESTAMP, A.chain AS chain, A.ASSET AS ASSET, SUM(OI_DELTA.DELTA) OVER (PARTITION BY A.chain, A.ASSET ORDER BY TS.TIMESTAMP) AS OI
+      FROM DUNE.CONTANGO_XYZ.RESULT_DAILY_TIMESTAMPS TS
+      CROSS JOIN ASSETS A
+      LEFT JOIN OI_DELTA ON OI_DELTA.TIMESTAMP = TS.TIMESTAMP AND OI_DELTA.ASSET = A.ASSET AND OI_DELTA.chain = A.chain
+      WHERE TS.TIMESTAMP <= DATE_TRUNC('day', from_unixtime(${toTimestamp}))
+    ),
+    OI as (
+      SELECT TIMESTAMP, chain, ASSET, 
+      CASE
+        WHEN OI < 0 THEN 0
+        ELSE OI
+      END AS OI
+      FROM OI_DIRTY
+    ), 
+    PRICE_AS_OF as (
+      SELECT ASSET, PRICE FROM (
+        SELECT ASSET, PRICE, ROW_NUMBER() OVER (PARTITION BY ASSET ORDER BY TIMESTAMP DESC) AS RN
+        FROM DUNE.CONTANGO_XYZ.RESULT_V2_DAILY_PRICES_USD
+        WHERE TIMESTAMP <= DATE_TRUNC('day', from_unixtime(${toTimestamp}))
+      ) WHERE RN = 1
+    ),
+    OI_USD as (
+      SELECT OI.chain, OI.TIMESTAMP, OI.OI * PRICE.PRICE AS OI_USD
+      FROM OI
+      INNER JOIN PRICE_AS_OF AS PRICE ON PRICE.ASSET = OI.ASSET
+    )
+      SELECT OI.chain, TIMESERIES.TIMESTAMP AS TIMESTAMP, COALESCE(SUM(OI.OI_USD), 0) AS OI_USD
+      FROM DUNE.CONTANGO_XYZ.RESULT_DAILY_TIMESTAMPS AS TIMESERIES
+      LEFT JOIN OI_USD as OI ON OI.TIMESTAMP = TIMESERIES.TIMESTAMP
+      WHERE TIMESERIES.TIMESTAMP > DATE_TRUNC('day', from_unixtime(${fromTimestamp})) AND TIMESERIES.TIMESTAMP <= DATE_TRUNC('day', from_unixtime(${toTimestamp}))
+      GROUP BY 1, 2
+  )
+  SELECT volume.chain, volume.VOL_USD, oi.OI_USD
+  FROM volume
+  LEFT JOIN oi ON oi.chain = volume.chain
+`;
 
-    const dailyOpenInterest = createBalances();
-    const dailyFees = createBalances();
-    const dailyVolume = createBalances();
-    const totalFees = createBalances();
-    const totalVolume = createBalances();
+const prefetch = async (options: FetchOptions) => {
+  const { fromTimestamp, toTimestamp } = options;
+  return queryDuneSql(options, buildQuery(fromTimestamp, toTimestamp));
+};
 
-    const tokens = response.today.map((asset) => asset.id);
-    const decimals = await api.multiCall({  abi: 'erc20:decimals', calls: tokens})
+const fetch = async (options: FetchOptions) => {
+  const { chain } = options;
+  const duneChain = chainConfig[chain].duneName;
+  const response = (options.preFetchedResults || []).filter((row: any) => row.chain === duneChain);
 
-    const data: IAsset[] = response.today.map((asset, index: number) => {
-      const yesterday = response.yesterday.find((e: IAssetTotals) => e.id === asset.id);
-      const totalVolume = Number(asset.totalVolume) - Number(yesterday?.totalVolume || 0);
-      const totalFees = Number(asset.totalFees) - Number(yesterday?.totalFees || 0);
-      const openInterest = Math.abs(Number(asset.openInterest));
-      const multipliedBy = 10 ** Number(decimals[index]);
-      return {
-        id: asset.id,
-        openInterest: openInterest * multipliedBy,
-        fees: totalFees * multipliedBy,
-        volume: totalVolume * multipliedBy,
-      } as IAsset
-    })
-    data.map(({ volume, id, openInterest, fees }) => {
-      dailyVolume.add(id, +volume)
-      dailyOpenInterest.add(id, +openInterest)
-      dailyFees.add(id, +fees)
-    });
-    response.today.map(({ totalFees: tf, id, totalVolume: tv, }, index) => {
-      const multipliedBy = 10 ** Number(decimals[index]);
-      totalFees.add(id, +tf * multipliedBy)
-      totalVolume.add(id, +tv * multipliedBy)
-    });
-
-    return {
-      dailyOpenInterest, dailyFees, dailyVolume,
-      // totalFees, totalVolume,
-      timestamp
-    };
-  }
-}
+  return {
+    dailyVolume: Number(response[0]?.VOL_USD ?? 0),
+    openInterestAtEnd: Number(response[0]?.OI_USD ?? 0),
+  };
+};
 
 const adapter: SimpleAdapter = {
-  adapter: {
-    [CHAIN.ARBITRUM]: {
-      fetch: fetchVolume(CHAIN.ARBITRUM),
-      start: 1696291200,
-    },
-    [CHAIN.OPTIMISM]: {
-      fetch: fetchVolume(CHAIN.OPTIMISM),
-      start: 1696204800,
-    },
-    [CHAIN.ETHEREUM]: {
-      fetch: fetchVolume(CHAIN.ETHEREUM),
-      start: 1696291200,
-    },
-    [CHAIN.POLYGON]: {
-      fetch: fetchVolume(CHAIN.POLYGON),
-      start: 1697155200,
-    },
-    [CHAIN.BASE]: {
-      fetch: fetchVolume(CHAIN.BASE),
-      start: 1696809600,
-    },
-    [CHAIN.XDAI]: {
-      fetch: fetchVolume(CHAIN.XDAI),
-      start: 1696550400,
-    },
-  }
+  dependencies: [Dependencies.DUNE],
+  isExpensiveAdapter: true,
+  prefetch,
+  fetch,
+  adapter: chainConfig,
 };
 export default adapter;

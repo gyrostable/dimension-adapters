@@ -1,45 +1,32 @@
 import { httpPost } from "../../utils/fetchURL"
-import { SimpleAdapter } from "../../adapters/types";
+import { SimpleAdapter, FetchOptions } from "../../adapters/types";
 import { CHAIN } from "../../helpers/chains";
-import { getUniqStartOfTodayTimestamp } from "../../helpers/getUniSubgraphVolume";
 
-const historicalVolumeEndpoint = "https://www.vanswap.org/info/DayDatas?first=1000&date=1577836800"
 
 interface IVolumeall {
   dailyVolumeUSD: string;
   date: number;
 }
 
-const fetch = async (timestamp: number) => {
-  const dayTimestamp = getUniqStartOfTodayTimestamp(new Date(timestamp * 1000))
+const fetch = async (options: FetchOptions) => {
+  const historicalVolumeEndpoint = "https://www.vanswap.org/info/DayDatas?first=10&date=" + (options.toTimestamp - 86400 * 2)
   const historicalVolume: IVolumeall[] = (await httpPost(historicalVolumeEndpoint, null))?.result;
-  const totalVolume = historicalVolume
-    .filter(volItem => (new Date(volItem.date).getTime()) <= dayTimestamp)
-    .reduce((acc, { dailyVolumeUSD }) => acc + Number(dailyVolumeUSD), 0)
-
   const dailyVolume = historicalVolume
-    .find(dayItem => (new Date(dayItem.date).getTime()) === dayTimestamp)?.dailyVolumeUSD
+    .find(dayItem => (new Date(dayItem.date).getTime()) === options.startOfDay)?.dailyVolumeUSD
 
   return {
-    totalVolume: `${totalVolume}`,
-    dailyVolume: dailyVolume ? `${dailyVolume}` : undefined,
-    timestamp: dayTimestamp,
+    dailyVolume: dailyVolume,
   };
 };
 
-const getStartTimestamp = async () => {
-  //const historicalVolume: IVolumeall[] = (await httpPost(historicalVolumeEndpoint))?.result;
-  //return (new Date(historicalVolume[0].date).getTime());
-  return 1647302400
-}
-
 const adapter: SimpleAdapter = {
-  adapter: {
-    [CHAIN.VISION]: {
-      fetch,
-      start: getStartTimestamp
-    },
-  },
+  fetch,
+  chains: [CHAIN.VISION],
+  start: 1647302400,
+  // www.vanswap.org and the vanswap.org apex both SERVFAIL from Cloudflare and Google, i.e. the
+  // delegation itself is broken. Last published point 2024-12-09 ($7,798) and TVL fell from
+  // $3.16M to 0 on 2026-02-20.
+  deadFrom: '2024-12-10',
 };
 
 export default adapter;

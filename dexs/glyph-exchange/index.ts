@@ -1,15 +1,12 @@
-import { BreakdownAdapter } from "../../adapters/types";
-import { Chain } from "@defillama/sdk/build/general";
+import { Chain, FetchOptions } from "../../adapters/types";
 import { CHAIN } from "../../helpers/chains";
-import { getGraphDimensions } from "../../helpers/getUniSubgraph";
-import { getStartTimestamp } from "../../helpers/getStartTimestamp";
+import { getGraphDimensions2 } from "../../helpers/getUniSubgraph";
 
 const endpointsClassic = {
   [CHAIN.CORE]: "https://thegraph.coredao.org/subgraphs/name/glyph/glyph-tvl"
 };
 
 const VOLUME_FIELD = "totalVolumeUSD";
-const DEFAULT_DAILY_VOLUME_FIELD = "dailyVolumeUSD";
 
 //0.3 swap fee, 6/10 to lp, 4/10 to treasury
 const feesPercent = {
@@ -21,49 +18,46 @@ const feesPercent = {
   SupplySideRevenue: 0.18
 }
 
-const graphsClassic = getGraphDimensions({
+const graphsClassic = getGraphDimensions2({
   graphUrls: endpointsClassic,
   totalVolume: {
     factory: "glyphFactories",
     field: VOLUME_FIELD,
   },
-  dailyVolume: {
-    factory: "glyphDayData",
-    field: DEFAULT_DAILY_VOLUME_FIELD,
+  totalFees: {
+    factory: "glyphFactories",
+    field: VOLUME_FIELD,
   },
   feesPercent
 });
 
-const startTimeQueryClassic = {
-  endpoints: endpointsClassic,
-  dailyDataField: "glyphDayData",
-};
+const fetch = async (options: FetchOptions) => {
+  const res = await graphsClassic(options);
+  res['dailyFees'] = res['dailyUserFees']
+  return res;
+}
 
 const classic = Object.keys(endpointsClassic).reduce(
   (acc, chain) => ({
     ...acc,
     [chain]: {
-      fetch: graphsClassic(chain as Chain),
-      start: 1710806400,
-      meta: {
-        methodology: {
-          Fees: "GlyphExchange charges a flat 0.3% fee",
-          UserFees: "Users pay a 0.3% fee on each trade",
-          Revenue: "A 0.12% of each trade goes to treasury",
-          ProtocolRevenue: "Treasury receives a share of the fees",
-          SupplySideRevenue: "Liquidity providers get 6/10 of all trades in their pools"
-        }
-      }
+      fetch,
+      start: '2024-03-19',
+      deadFrom: '2026-09-11',
     },
   }),
   {}
 ) as any;
 
-const adapter: BreakdownAdapter = {
+export default {
   version: 2,
-  breakdown: {
-    classic: classic,
+  deadFrom: '2026-09-11',
+  adapter: classic,
+  methodology: {
+    Fees: "GlyphExchange charges a flat 0.3% fee",
+    UserFees: "Users pay a 0.3% fee on each trade",
+    Revenue: "A 0.12% of each trade goes to treasury",
+    ProtocolRevenue: "Treasury receives a share of the fees",
+    SupplySideRevenue: "Liquidity providers get 6/10 of all trades in their pools"
   }
 }
-
-export default adapter

@@ -14,26 +14,26 @@ interface CaviarNineLSUPool {
     }
   };
 }
-const fetchFees = async (timestamp: number): Promise<FetchResultFees> => {
+const fetchFees = async (): Promise<FetchResultFees> => {
   const response: CaviarNineLSUPool = (await fetchURL("https://api-core.caviarnine.com/v1.0/stats/product/lsupool")).summary;
   const dailyFees = Number(response.protocol_fees.interval_1d.usd) + Number(response.lp_revenue.interval_1d.usd);
   const dailyRevenue = response.protocol_fees.interval_1d.usd;
   const supplySideRevenue = response.lp_revenue.interval_1d.usd;
   return {
-    dailyFees: `${dailyFees}`,
-    dailyRevenue: `${dailyRevenue}`,
-    dailySupplySideRevenue: `${supplySideRevenue}`,
-    timestamp
+    dailyFees,
+    dailyRevenue,
+    dailySupplySideRevenue: supplySideRevenue,
   }
 }
 
 const adapters: SimpleAdapter = {
   version: 1,
+  deadFrom: '2026-09-04', // stats API returns an empty summary; product TVL is 0 and last nonzero fees were dust on 2026-09-03
   adapter: {
     [CHAIN.RADIXDLT]: {
       fetch: fetchFees,
-      start: 1699142400,
-      // runAtCurrTime: true
+      start: '2023-11-05',
+      runAtCurrTime: true,
     }
   }
 }
